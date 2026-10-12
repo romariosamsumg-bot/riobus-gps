@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>RioBus - Assistente de Mobilidade</title>
-  
+  <link rel="manifest" href="/manifest.json">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -148,6 +149,22 @@
       });
     });
   </script>
+  <script>
+  // Registra o Service Worker e pede permissão para Notificações
+  if ('serviceWorker' in navigator && 'Notification' in window) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('PWA Registrado!', reg.scope))
+        .catch(err => console.error('Erro no PWA:', err));
+        
+      // Pede permissão para apitar
+      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    });
+  }
+</script>
+
 </body>
 </html>
  
