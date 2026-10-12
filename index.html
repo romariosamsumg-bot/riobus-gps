@@ -8,7 +8,11 @@
   <link rel="manifest" href="/manifest.json">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  
+  <!-- Leaflet & MarkerCluster -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
   <style>
     body, html { height: 100%; overflow: hidden; background-color: #f3f4f6; }
@@ -21,6 +25,17 @@
       box-shadow: 0 -4px 20px rgba(0,0,0,0.15); z-index: 1000;
       max-height: 85vh; overflow-y: auto; padding-bottom: 20px;
     }
+    
+    /* Estilo dos pontos no mapa */
+    .bus-pin {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: #1a73e8; border: 2px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 13px; font-weight: 700;
+    }
+    .bus-pin.brt { background: #e37400; }
+    .bus-pin.stopped { opacity: 0.65; border-style: dashed; }
   </style>
 </head>
 <body class="relative">
@@ -36,16 +51,15 @@
         <h2 class="text-xl font-bold text-gray-800 mb-4">Radar em Tempo Real</h2>
         <div class="bg-gray-100 rounded-xl p-1 flex items-center mb-4 border border-gray-200">
           <i class="ph-bold ph-magnifying-glass text-gray-500 ml-3 text-lg"></i>
-          <input type="text" id="inputBuscaRadar" placeholder="Digite a linha (Ex: 483)" class="bg-transparent w-full p-3 outline-none text-gray-800 font-bold">
+          <input type="text" id="inputBuscaRadar" placeholder="Filtrar linha no mapa (Ex: 483)" class="bg-transparent w-full p-3 outline-none text-gray-800 font-bold">
         </div>
-        <p class="text-sm text-gray-500" id="statusRadar">A aguardar pesquisa...</p>
+        <p class="text-sm text-gray-500 font-medium" id="statusRadar">A carregar frota...</p>
       </div>
 
       <!-- ABA 2: ALARME -->
       <div id="tab-alarme" class="tab-content">
         <h2 class="text-xl font-bold text-gray-800 mb-4">Alarme de Partida</h2>
         <p class="text-sm text-gray-500 mb-4">O telemóvel irá apitar quando for a hora de sair de casa para não perder o autocarro.</p>
-        
         <div class="space-y-3">
           <div class="border border-gray-200 rounded-xl p-3 bg-gray-50">
             <label class="text-xs text-gray-500 font-bold uppercase">Linha a Monitorizar</label>
@@ -64,7 +78,6 @@
       <div id="tab-planeador" class="tab-content">
         <h2 class="text-xl font-bold text-gray-800 mb-4">Chegar a Horas</h2>
         <p class="text-sm text-gray-500 mb-4">Cálculo inverso: a que horas deve sair para chegar no momento certo.</p>
-
         <div class="space-y-3">
           <div class="border border-gray-200 rounded-xl p-3 flex gap-4 items-center">
             <i class="ph-fill ph-clock text-3xl text-blue-500"></i>
@@ -73,7 +86,6 @@
               <input type="time" id="inputHoraChegada" value="08:00" class="w-full mt-1 outline-none font-black text-2xl text-gray-800">
             </div>
           </div>
-
           <div class="bg-blue-50 p-4 rounded-xl mt-2 border border-blue-100 flex items-center justify-between">
             <div>
               <p class="text-xs text-blue-800 font-bold uppercase">Hora de Sair de Casa:</p>
@@ -81,7 +93,6 @@
             </div>
             <i class="ph-fill ph-person-simple-walk text-4xl text-blue-300"></i>
           </div>
-          <p class="text-xs text-center text-gray-400 mt-2">*Considera um tempo médio de 55 minutos de percurso.</p>
         </div>
       </div>
 
@@ -100,18 +111,18 @@
     </button>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
   <script>
-    // 1. REGISTO DO SERVICE WORKER E PERMISSÃO DE NOTIFICAÇÕES (PWA)
-    if ('serviceWorker' in navigator && 'Notification' in window) {
+    // 1. REGISTO DO SERVICE WORKER (PWA)
+    if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js');
-        if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-          Notification.requestPermission();
-        }
+        navigator.serviceWorker.register('/sw.js').catch(console.error);
       });
     }
 
-    // 2. LÓGICA DE NAVEGAÇÃO DOS MENUS
+    // 2. LÓGICA DE NAVEGAÇÃO
     const navButtons = document.querySelectorAll('.nav-btn');
     const tabContents = document.querySelectorAll('.tab-content');
     navButtons.forEach(btn => {
@@ -123,117 +134,141 @@
       });
     });
 
-    // 3. MAPA E GEOLOCALIZAÇÃO
-    const map = L.map('map', { zoomControl: false }).setView([-22.9068, -43.1729], 13);
+    // 3. MAPA, GEOLOCALIZAÇÃO E PLOTAGEM DE AUTOCARROS
+    const map = L.map('map', { zoomControl: false }).setView([-22.9068, -43.1729], 12);
     L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20 }).addTo(map);
     
-    let userLat = -22.9068, userLon = -43.1729;
-    let userMarker = null;
+    const markerCluster = L.markerClusterGroup({ disableClusteringAtZoom: 15, maxClusterRadius: 40 });
+    map.addLayer(markerCluster);
+
+    let userLat = -22.9068, userLon = -43.1729; 
+    let todosVeiculos = [];
+    let filtroTexto = '';
 
     if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(pos => {
-        userLat = pos.coords.latitude;
-        userLon = pos.coords.longitude;
-        if(!userMarker) {
-          userMarker = L.marker([userLat, userLon]).addTo(map).bindPopup("Você está aqui");
-          map.setView([userLat, userLon], 14);
-        } else {
-          userMarker.setLatLng([userLat, userLon]);
-        }
-      }, err => console.warn('GPS inativo', err), { enableHighAccuracy: true });
+      navigator.geolocation.getCurrentPosition(pos => {
+        userLat = pos.coords.latitude; userLon = pos.coords.longitude;
+        L.marker([userLat, userLon]).addTo(map).bindPopup("A sua localização");
+        map.setView([userLat, userLon], 14);
+      });
     }
 
-    // FÓRMULA DE HAVERSINE (Distância entre coordenadas em KM)
+    async function atualizarRadar() {
+      try {
+        const res = await fetch('/api/onibus'); 
+        if(!res.ok) throw new Error();
+        const data = await res.json();
+        todosVeiculos = data.veiculos || data.vehicles || [];
+        document.getElementById('statusRadar').innerHTML = `<span class="text-green-600">●</span> ${todosVeiculos.length} veículos online`;
+        desenharVeiculosNoMapa();
+      } catch(e) {
+        document.getElementById('statusRadar').innerText = "Erro ao sincronizar. A tentar novamente...";
+      }
+    }
+
+    function desenharVeiculosNoMapa() {
+      markerCluster.clearLayers();
+      const filtrados = todosVeiculos.filter(v => {
+        if(!filtroTexto) return true;
+        return String(v.linha).toLowerCase().includes(filtroTexto) || String(v.ordem).toLowerCase().includes(filtroTexto);
+      });
+
+      filtrados.forEach(v => {
+        const linhaNome = String(v.linha || 'S/L');
+        const isBrt = String(v.fonte).toLowerCase().includes('brt') || linhaNome.toUpperCase().includes('BRT');
+        const isStopped = v.velocidade <= 3;
+
+        const pinHtml = `<div class="bus-pin ${isBrt ? 'brt' : ''} ${isStopped ? 'stopped' : ''}">${linhaNome.slice(0, 4)}</div>`;
+        const icon = L.divIcon({ className: '', html: pinHtml, iconSize: [32, 32], iconAnchor: [16, 16] });
+        
+        const marker = L.marker([v.lat, v.lon], { icon });
+        marker.bindPopup(`<b>Linha: ${v.linha}</b><br>Ordem: ${v.ordem}<br>Velocidade: ${Math.round(v.velocidade)} km/h<br>Sentido: ${v.sentido}`);
+        markerCluster.addLayer(marker);
+      });
+    }
+
+    document.getElementById('inputBuscaRadar').addEventListener('input', (e) => {
+      filtroTexto = e.target.value.trim().toLowerCase();
+      desenharVeiculosNoMapa();
+    });
+
+    setInterval(atualizarRadar, 15000);
+    atualizarRadar();
+
+    // 4. MATEMÁTICA DO ALARME (HAVERSINE)
     function calcularDistancia(lat1, lon1, lat2, lon2) {
       const R = 6371; 
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
       return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
 
-    // 4. LÓGICA DO ALARME DE APROXIMAÇÃO
     let alarmeAtivo = false;
-    let loopMonitorizacao;
+    let loopAlarme;
 
     document.getElementById('btnCriarAlarme').addEventListener('click', () => {
+      if ('Notification' in window && Notification.permission !== 'granted') {
+        Notification.requestPermission();
+      }
+
       const linha = document.getElementById('inputLinhaAlarme').value.toUpperCase().trim();
-      if(!linha) return alert("Digite uma linha válida!");
+      if(!linha) return alert("Digite a linha!");
 
       alarmeAtivo = true;
       document.getElementById('statusAlarmeBox').classList.remove('hidden');
-      document.getElementById('btnCriarAlarme').innerHTML = `<i class="ph-bold ph-spinner animate-spin text-lg"></i> Alarme Ativo para a linha ${linha}`;
+      document.getElementById('btnCriarAlarme').innerHTML = `A monitorizar a linha ${linha}...`;
       document.getElementById('btnCriarAlarme').classList.replace('bg-blue-600', 'bg-green-600');
 
-      if(loopMonitorizacao) clearInterval(loopMonitorizacao);
+      if(loopAlarme) clearInterval(loopAlarme);
       
-      loopMonitorizacao = setInterval(async () => {
+      loopAlarme = setInterval(() => {
         if(!alarmeAtivo) return;
+        let onibusMaisProximo = null;
+        let menorDistancia = Infinity;
 
-        try {
-          const res = await fetch('/api/vehicles'); // Consulta o seu backend na Cloudflare
-          const data = await res.json();
-          const frota = data.vehicles || [];
+        todosVeiculos.filter(v => String(v.linha).toUpperCase().includes(linha)).forEach(v => {
+          const dist = calcularDistancia(userLat, userLon, v.lat, v.lon);
+          if(dist < menorDistancia) { menorDistancia = dist; onibusMaisProximo = v; }
+        });
 
-          let onibusMaisProximo = null;
-          let menorDistancia = Infinity;
+        if(onibusMaisProximo) {
+          const velCalculo = onibusMaisProximo.velocidade > 5 ? onibusMaisProximo.velocidade : 15;
+          const tempoMinutos = Math.round((menorDistancia / velCalculo) * 60);
 
-          // Filtra a linha e acha o autocarro mais perto da sua localização de GPS
-          frota.filter(v => v.linha.includes(linha)).forEach(v => {
-            const dist = calcularDistancia(userLat, userLon, v.lat, v.lon);
-            if(dist < menorDistancia) { menorDistancia = dist; onibusMaisProximo = v; }
-          });
+          document.getElementById('textoStatusAlarme').innerHTML = 
+            `O autocarro está a <b>${menorDistancia.toFixed(1)} km</b>.<br>Chega em <b>${tempoMinutos} minutos</b>.`;
 
-          if(onibusMaisProximo) {
-            // Tempo = Distância / Velocidade. Assume 15km/h no mínimo para evitar cálculos infinitos no trânsito parado
-            const velocidadeReal = onibusMaisProximo.velocidade > 5 ? onibusMaisProximo.velocidade : 15;
-            const tempoMinutos = Math.round((menorDistancia / velocidadeReal) * 60);
-
-            document.getElementById('textoStatusAlarme').innerHTML = 
-              `O veículo mais próximo está a <b>${menorDistancia.toFixed(1)} km</b>.<br>Tempo estimado de chegada: <b>${tempoMinutos} minutos</b>.`;
-
-            // GATILHO DA NOTIFICAÇÃO PWA (Apita a 5 minutos da chegada)
-            if(tempoMinutos <= 5) {
-              if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-                navigator.serviceWorker.controller.postMessage({
-                  type: 'DISPARAR_ALARME',
-                  mensagem: `Atenção! O seu autocarro da linha ${linha} chega em ${tempoMinutos} minutos!`
-                });
-              }
-              alarmeAtivo = false;
-              clearInterval(loopMonitorizacao);
-              document.getElementById('btnCriarAlarme').innerText = "Alarme Concluído";
-              document.getElementById('btnCriarAlarme').classList.replace('bg-green-600', 'bg-gray-400');
+          if(tempoMinutos <= 5) {
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+              navigator.serviceWorker.controller.postMessage({
+                type: 'DISPARAR_ALARME',
+                mensagem: `O seu autocarro da linha ${linha} chega em ${tempoMinutos} minutos!`
+              });
+            } else if (Notification.permission === 'granted') {
+              new Notification('RioBus: Hora de Sair!', { body: `A linha ${linha} chega em ${tempoMinutos} min.` });
             }
-          } else {
-            document.getElementById('textoStatusAlarme').innerText = "Nenhum veículo desta linha detetado no radar no momento.";
+            alarmeAtivo = false;
+            clearInterval(loopAlarme);
+            document.getElementById('btnCriarAlarme').innerText = "Alarme Concluído";
+            document.getElementById('btnCriarAlarme').classList.replace('bg-green-600', 'bg-gray-400');
           }
-        } catch(e) { console.error(e); }
-      }, 15000); // Checa a cada 15 segundos
+        } else {
+          document.getElementById('textoStatusAlarme').innerText = "A aguardar passagem da linha no radar...";
+        }
+      }, 15000);
     });
 
-    // 5. LÓGICA DO PLANEADOR REVERSO (A que horas sair)
+    // 5. PLANEADOR REVERSO
     document.getElementById('inputHoraChegada').addEventListener('change', (e) => {
       const horaDesejada = e.target.value;
       if(!horaDesejada) return;
-
-      const tempoViagemSimulado = 55; // Num modelo avançado, isto viria da API de routing do Google Maps
-      
       const [horas, minutos] = horaDesejada.split(':').map(Number);
       const dataAlvo = new Date();
       dataAlvo.setHours(horas, minutos, 0);
-
-      // Subtrai os 55 minutos da hora que precisa de chegar
-      const dataSair = new Date(dataAlvo.getTime() - (tempoViagemSimulado * 60000));
-      
-      const horaSaida = dataSair.getHours().toString().padStart(2, '0');
-      const minSaida = dataSair.getMinutes().toString().padStart(2, '0');
-
-      document.getElementById('resultadoPlaneador').innerText = `${horaSaida}:${minSaida}`;
+      const dataSair = new Date(dataAlvo.getTime() - (55 * 60000));
+      document.getElementById('resultadoPlaneador').innerText = `${dataSair.getHours().toString().padStart(2, '0')}:${dataSair.getMinutes().toString().padStart(2, '0')}`;
     });
-
   </script>
 </body>
 </html>
