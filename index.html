@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RioBus GPS - Tempo Real</title>
+  
+  <!-- Leaflet & MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  
+  <!-- Google Fonts & Phosphor Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body, html { width: 100%; height: 100%; overflow: hidden; font-family: 'Roboto', sans-serif; background: #e5e3df; }
+    #map { width: 100%; height: 100%; z-index: 1; }
+
+    /* Barra Superior Estilo Google Maps */
+    .top-container {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      max-width: 440px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .search-card {
+      background: #ffffff;
+      border-radius: 28px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.22), 0 0 1px rgba(0,0,0,0.1);
+      gap: 12px;
+    }
+
+    .search-card i { font-size: 20px; color: #5f6368; flex-shrink: 0; }
+    .search-card input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 16px;
+      color: #202124;
+      font-family: inherit;
+    }
+    .search-card input::placeholder { color: #80868b; }
+
+    .btn-clear {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: none;
+      padding: 4px;
+    }
+
+    /* Chips de Filtro */
+    .chips-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .chips-row::-webkit-scrollbar { display: none; }
+
+    .chip {
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #3c4043;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+      white-space: nowrap;
+      cursor: pointer;
+      border: 1px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .chip.active {
+      background: #e8f0fe;
+      color: #1a73e8;
+      border-color: #d2e3fc;
+      font-weight: 700;
+    }
+
+    /* Indicador de Status / Atualização */
+    .status-badge {
+      position: absolute;
+      top: 110px;
+      left: 12px;
+      z-index: 999;
+      background: rgba(32, 33, 36, 0.88);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      backdrop-filter: blur(4px);
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #34a853;
+      border-radius: 50%;
+      box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 7px rgba(52, 168, 83, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
+    }
+
+    /* Controles Flutuantes à Direita */
+    .fab-column {
+      position: absolute;
+      right: 14px;
+      bottom: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .fab {
+      width: 48px;
+      height: 48px;
+      background: #ffffff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      border: none;
+      cursor: pointer;
+      color: #3c4043;
+      font-size: 22px;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .fab:active { transform: scale(0.94); background: #f1f3f4; }
+    .fab.active-loc { color: #1a73e8; }
+
+    /* Bottom Sheet com Detalhes do Ônibus */
+    .bottom-sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.18);
+      z-index: 1001;
+      padding: 16px 20px 24px;
+      max-width: 460px;
+      margin: 0 auto;
+      transform: translateY(110%);
+      transition: transform 0.28s cubic-bezier(0.1, 0.9, 0.2, 1);
+    }
+    .bottom-sheet.show { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      background: #dadce0;
+      border-radius: 2px;
+      margin: 0 auto 14px;
+    }
+    .sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .sheet-line-badge {
+      background: #1a73e8;
+      color: #fff;
+      font-size: 22px;
+      font-weight: 700;
+      padding: 4px 14px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+    .sheet-close {
+      background: none;
+      border: none;
+      font-size: 22px;
+      color: #5f6368;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .sheet-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .sheet-info-box {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .sheet-info-box span { font-size: 11px; color: #70757a; display: block; text-transform: uppercase; }
+    .sheet-info-box strong { font-size: 15px; color: #202124; margin-top: 2px; display: block; }
+
+    /* Ícones no Mapa */
+    .bus-pin {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #1a73e8;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 700;
+      transition: transform 0.2s;
+    }
+    .bus-pin.brt { background: #e37400; }
+    .bus-pin.stopped { opacity: 0.65; border-style: dashed; }
+
+    .my-pos-marker {
+      width: 18px;
+      height: 18px;
+      background: #4285f4;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(66, 133, 244, 0.8);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Barra de Busca Superior -->
+  <div class="top-container">
+    <div class="search-card">
+      <i class="ph-bold ph-magnifying-glass"></i>
+      <input type="text" id="searchInput" placeholder="Buscar linha (ex: 483, 371, BRT)..." autocomplete="off" />
+      <button class="btn-clear" id="btnClear"><i class="ph-bold ph-x"></i></button>
+    </div>
+
+    <!-- Chips Rápidos -->
+    <div class="chips-row">
+      <div class="chip active" data-filter="all">Todas as Linhas</div>
+      <div class="chip" data-filter="moving"><i class="ph-bold ph-gauge"></i> Em Movimento</div>
+      <div class="chip" data-filter="brt"><i class="ph-bold ph-bus"></i> Apenas BRT</div>
+    </div>
+  </div>
+
+  <!-- Badge de Status -->
+  <div class="status-badge">
+    <div class="pulse-dot"></div>
+    <span id="statusText">Conectando aos ônibus...</span>
+  </div>
+
+  <!-- Botões Flutuantes -->
+  <div class="fab-column">
+    <button class="fab" id="btnLayer" title="Alternar Satélite / Mapa">
+      <i class="ph-bold ph-stack"></i>
+    </button>
+    <button class="fab" id="btnLocation" title="Onde estou">
+      <i class="ph-bold ph-crosshair"></i>
+    </button>
+    <button class="fab" id="btnRefresh" title="Atualizar agora">
+      <i class="ph-bold ph-arrows-clockwise"></i>
+    </button>
+  </div>
+
+  <!-- Bottom Sheet de Detalhes -->
+  <div class="bottom-sheet" id="bottomSheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div>
+        <div class="sheet-line-badge" id="sheetLine">---</div>
+        <p style="font-size: 13px; color: #5f6368; margin-top: 4px;" id="sheetConsorcio">Consórcio</p>
+      </div>
+      <button class="sheet-close" id="sheetClose"><i class="ph-bold ph-x"></i></button>
+    </div>
+    <div class="sheet-grid">
+      <div class="sheet-info-box">
+        <span>Número de Ordem</span>
+        <strong id="sheetOrdem">---</strong>
+      </div>
+      <div class="sheet-info-box">
+        <span>Velocidade</span>
+        <strong id="sheetSpeed">0 km/h</strong>
+      </div>
+      <div class="sheet-info-box">
+        <span>Sentido</span>
+        <strong id="sheetSentido">N/D</strong>
+      </div>
+      <div class="sheet-info-box">
+        <span>Último Sinal</span>
+        <strong id="sheetTime">--:--</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts Leaflet e Lógica Principal -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <script>
+    // 1. Inicialização do Mapa com Camadas Google
+    const rioCoords = [-22.9068, -43.1729];
+    const map = L.map('map', { zoomControl: false }).setView(rioCoords, 13);
+
+    const googleRoadmap = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: 'Mapas &copy; Google'
+    });
+
+    const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: 'Imagens &copy; Google'
+    });
+
+    googleRoadmap.addTo(map);
+    let isSatellite = false;
+
+    // Cluster de Marcadores
+    const markerCluster = L.markerClusterGroup({
+      disableClusteringAtZoom: 16,
+      maxClusterRadius: 40,
+      showCoverageOnHover: false
+    });
+    map.addLayer(markerCluster);
+
+    // Estado Geral
+    let todosVeiculos = [];
+    let filtroAtual = 'all';
+    let buscaTexto = '';
+    let markerMap = new Map();
+    let userMarker = null;
+
+    // 2. Requisição para a nossa Cloudflare Function (/api/onibus)
+    async function carregarDados() {
+      const statusText = document.getElementById('statusText');
+      try {
+        statusText.innerText = 'Buscando GPS ao vivo...';
+        const res = await fetch('/api/onibus');
+        
+        if (!res.ok) throw new Error('Falha na resposta do servidor');
+        const data = await res.json();
+
+        todosVeiculos = data.veiculos || [];
+        statusText.innerText = `${todosVeiculos.length} ônibus rastreados`;
+        aplicarFiltrosEPlotar();
+      } catch (err) {
+        console.warn('Erro ao carregar dados:', err);
+        statusText.innerText = 'Aguardando sincronização...';
+      }
+    }
+
+    // 3. Renderização dos Marcadores no Mapa
+    function aplicarFiltrosEPlotar() {
+      markerCluster.clearLayers();
+      markerMap.clear();
+
+      const filtrados = todosVeiculos.filter(v => {
+        // Filtro por Linha ou Ordem digitado na busca
+        if (buscaTexto) {
+          const matchLinha = v.linha.toLowerCase().includes(buscaTexto);
+          const matchOrdem = v.ordem.toLowerCase().includes(buscaTexto);
+          if (!matchLinha && !matchOrdem) return false;
+        }
+
+        // Filtro dos Chips
+        if (filtroAtual === 'moving' && (v.velocidade <= 3 || isNaN(v.velocidade))) return false;
+        if (filtroAtual === 'brt' && !v.fonte.toLowerCase().includes('brt') && !v.linha.toUpperCase().includes('BRT')) return false;
+
+        return true;
+      });
+
+      filtrados.forEach(v => {
+        const isBrt = v.fonte.toLowerCase().includes('brt') || v.linha.toUpperCase().includes('BRT');
+        const isStopped = v.velocidade <= 3;
+        
+        const pinHtml = `
+          <div class="bus-pin ${isBrt ? 'brt' : ''} ${isStopped ? 'stopped' : ''}">
+            ${v.linha.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4)}
+          </div>
+        `;
+
+        const icon = L.divIcon({
+          className: '',
+          html: pinHtml,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
+        });
+
+        const marker = L.marker([v.lat, v.lon], { icon: icon });
+        marker.on('click', () => abrirDetalhes(v));
+        
+        markerCluster.addLayer(marker);
+        markerMap.set(v.ordem, marker);
+      });
+    }
+
+    // 4. Detalhes do Ônibus (Bottom Sheet)
+    function abrirDetalhes(v) {
+      document.getElementById('sheetLine').innerText = `Linha ${v.linha}`;
+      document.getElementById('sheetConsorcio').innerText = v.fonte || 'SPPO Rio';
+      document.getElementById('sheetOrdem').innerText = v.ordem;
+      document.getElementById('sheetSpeed').innerText = `${Math.round(v.velocidade || 0)} km/h`;
+      document.getElementById('sheetSentido').innerText = v.sentido !== 'N/D' ? v.sentido : 'Não informado';
+      
+      let hora = '--:--';
+      try {
+        const d = new Date(v.atualizacao);
+        hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch {}
+      document.getElementById('sheetTime').innerText = hora;
+
+      document.getElementById('bottomSheet').classList.add('show');
+    }
+
+    // 5. Eventos da Interface
+    document.getElementById('sheetClose').addEventListener('click', () => {
+      document.getElementById('bottomSheet').classList.remove('show');
+    });
+
+    const searchInput = document.getElementById('searchInput');
+    const btnClear = document.getElementById('btnClear');
+
+    searchInput.addEventListener('input', (e) => {
+      buscaTexto = e.target.value.trim().toLowerCase();
+      btnClear.style.display = buscaTexto ? 'block' : 'none';
+      aplicarFiltrosEPlotar();
+    });
+
+    btnClear.addEventListener('click', () => {
+      searchInput.value = '';
+      buscaTexto = '';
+      btnClear.style.display = 'none';
+      aplicarFiltrosEPlotar();
+    });
+
+    // Chips
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        filtroAtual = chip.dataset.filter;
+        aplicarFiltrosEPlotar();
+      });
+    });
+
+    // Alternar Satélite
+    document.getElementById('btnLayer').addEventListener('click', () => {
+      if (isSatellite) {
+        map.removeLayer(googleHybrid);
+        googleRoadmap.addTo(map);
+      } else {
+        map.removeLayer(googleRoadmap);
+        googleHybrid.addTo(map);
+      }
+      isSatellite = !isSatellite;
+    });
+
+    // Minha Localização
+    document.getElementById('btnLocation').addEventListener('click', () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          map.setView([lat, lon], 15);
+
+          if (!userMarker) {
+            const userIcon = L.divIcon({ className: '', html: '<div class="my-pos-marker"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
+            userMarker = L.marker([lat, lon], { icon: userIcon }).addTo(map);
+          } else {
+            userMarker.setLatLng([lat, lon]);
+          }
+          document.getElementById('btnLocation').classList.add('active-loc');
+        });
+      }
+    });
+
+    // Atualização manual e automática a cada 20 segundos
+    document.getElementById('btnRefresh').addEventListener('click', carregarDados);
+    setInterval(carregarDados, 20000);
+
+    // Inicialização
+    carregarDados();
+  </script>
+</body>
+</html>
