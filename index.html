@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>RioBus - Assistente de Mobilidade</title>
+  
   <link rel="manifest" href="/manifest.json">
-
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -13,158 +13,227 @@
   <style>
     body, html { height: 100%; overflow: hidden; background-color: #f3f4f6; }
     #map { height: 100%; width: 100%; z-index: 1; }
-    
-    /* Esconde as secções que não estão ativas */
     .tab-content { display: none; }
     .tab-content.active { display: block; }
-    
-    /* Painel Inferior Deslizante */
     .bottom-sheet {
-      position: absolute;
-      bottom: 60px; /* Acima do menu de navegação */
-      left: 0; right: 0;
-      background: white;
-      border-radius: 24px 24px 0 0;
-      box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-      z-index: 1000;
-      max-height: 85vh;
-      overflow-y: auto;
-      transform: translateY(100%);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: absolute; bottom: 60px; left: 0; right: 0;
+      background: white; border-radius: 24px 24px 0 0;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.15); z-index: 1000;
+      max-height: 85vh; overflow-y: auto; padding-bottom: 20px;
     }
-    .bottom-sheet.open { transform: translateY(0); }
   </style>
 </head>
 <body class="relative">
 
-  <!-- Mapa de Fundo -->
   <div id="map" class="absolute inset-0"></div>
 
-  <!-- Painel de Funcionalidades -->
-  <div id="mainPanel" class="bottom-sheet open">
+  <div id="mainPanel" class="bottom-sheet">
     <div class="w-12 h-1.5 bg-gray-300 rounded-full mx-auto my-3"></div>
     <div class="px-5 pb-6">
       
-      <!-- ABA 1: RADAR (Acompanhar Autocarro) -->
+      <!-- ABA 1: RADAR -->
       <div id="tab-radar" class="tab-content active">
         <h2 class="text-xl font-bold text-gray-800 mb-4">Radar em Tempo Real</h2>
-        <div class="bg-gray-100 rounded-xl p-1 flex items-center mb-4">
-          <i class="ph ph-magnifying-glass text-gray-500 ml-3 text-lg"></i>
-          <input type="text" placeholder="Qual a linha do autocarro?" class="bg-transparent w-full p-3 outline-none text-gray-800">
+        <div class="bg-gray-100 rounded-xl p-1 flex items-center mb-4 border border-gray-200">
+          <i class="ph-bold ph-magnifying-glass text-gray-500 ml-3 text-lg"></i>
+          <input type="text" id="inputBuscaRadar" placeholder="Digite a linha (Ex: 483)" class="bg-transparent w-full p-3 outline-none text-gray-800 font-bold">
         </div>
-        <p class="text-sm text-gray-500">Procure uma linha para ver os veículos no mapa e estimar a chegada à sua paragem.</p>
+        <p class="text-sm text-gray-500" id="statusRadar">A aguardar pesquisa...</p>
       </div>
 
-      <!-- ABA 2: ALARME DE SAÍDA -->
+      <!-- ABA 2: ALARME -->
       <div id="tab-alarme" class="tab-content">
         <h2 class="text-xl font-bold text-gray-800 mb-4">Alarme de Partida</h2>
-        <p class="text-sm text-gray-500 mb-4">Avisamos a hora exata de sair de casa para não perder o autocarro.</p>
+        <p class="text-sm text-gray-500 mb-4">O telemóvel irá apitar quando for a hora de sair de casa para não perder o autocarro.</p>
         
         <div class="space-y-3">
-          <div class="border border-gray-200 rounded-xl p-3">
-            <label class="text-xs text-gray-500 font-bold uppercase">A minha paragem</label>
-            <input type="text" placeholder="Ex: Av. Presidente Vargas, 1000" class="w-full mt-1 outline-none font-medium text-gray-800">
+          <div class="border border-gray-200 rounded-xl p-3 bg-gray-50">
+            <label class="text-xs text-gray-500 font-bold uppercase">Linha a Monitorizar</label>
+            <input type="text" id="inputLinhaAlarme" placeholder="Ex: 371" class="w-full mt-1 outline-none font-bold text-lg bg-transparent text-blue-600 uppercase">
           </div>
-          <div class="border border-gray-200 rounded-xl p-3">
-            <label class="text-xs text-gray-500 font-bold uppercase">Linha desejada</label>
-            <input type="text" placeholder="Ex: 483, BRT Transbrasil" class="w-full mt-1 outline-none font-medium text-gray-800">
-          </div>
-          <button class="w-full bg-blue-600 text-white font-bold rounded-xl py-4 mt-2 flex justify-center items-center gap-2">
-            <i class="ph-bold ph-bell-ringing text-lg"></i> Criar Alarme
+          <button id="btnCriarAlarme" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl py-4 mt-2 flex justify-center items-center gap-2 transition">
+            <i class="ph-bold ph-bell-ringing text-lg"></i> Ativar Alarme Automático
           </button>
+          <div id="statusAlarmeBox" class="hidden bg-green-50 p-4 rounded-xl border border-green-200 mt-3">
+            <p class="text-sm text-green-800" id="textoStatusAlarme">A localizar o veículo mais próximo...</p>
+          </div>
         </div>
       </div>
 
-      <!-- ABA 3: PLANEADOR INVERSO (Chegar a Horas) -->
+      <!-- ABA 3: PLANEADOR -->
       <div id="tab-planeador" class="tab-content">
         <h2 class="text-xl font-bold text-gray-800 mb-4">Chegar a Horas</h2>
-        <p class="text-sm text-gray-500 mb-4">Diga-nos onde e a que horas precisa de estar. Nós calculamos o resto.</p>
+        <p class="text-sm text-gray-500 mb-4">Cálculo inverso: a que horas deve sair para chegar no momento certo.</p>
 
         <div class="space-y-3">
-          <div class="border border-gray-200 rounded-xl p-3">
-            <label class="text-xs text-gray-500 font-bold uppercase">Destino (Trabalho/Compromisso)</label>
-            <input type="text" placeholder="Ex: Barra Shopping" class="w-full mt-1 outline-none font-medium text-gray-800">
-          </div>
-          
-          <div class="flex gap-3">
-            <div class="border border-gray-200 rounded-xl p-3 flex-1">
-              <label class="text-xs text-gray-500 font-bold uppercase">Hora de Chegada</label>
-              <input type="time" value="08:00" class="w-full mt-1 outline-none font-bold text-lg text-blue-600">
+          <div class="border border-gray-200 rounded-xl p-3 flex gap-4 items-center">
+            <i class="ph-fill ph-clock text-3xl text-blue-500"></i>
+            <div class="flex-1">
+              <label class="text-xs text-gray-500 font-bold uppercase">Hora de Chegada Desejada</label>
+              <input type="time" id="inputHoraChegada" value="08:00" class="w-full mt-1 outline-none font-black text-2xl text-gray-800">
             </div>
           </div>
 
-          <div class="bg-blue-50 p-4 rounded-xl mt-2 border border-blue-100">
-            <p class="text-xs text-blue-800 font-bold uppercase">Cálculo de Rota</p>
-            <p class="text-sm text-blue-900 mt-1">O cálculo do trânsito e do percurso indicará aqui a hora exata em que deve iniciar a sua viagem.</p>
+          <div class="bg-blue-50 p-4 rounded-xl mt-2 border border-blue-100 flex items-center justify-between">
+            <div>
+              <p class="text-xs text-blue-800 font-bold uppercase">Hora de Sair de Casa:</p>
+              <p class="text-3xl font-black text-blue-600 mt-1" id="resultadoPlaneador">--:--</p>
+            </div>
+            <i class="ph-fill ph-person-simple-walk text-4xl text-blue-300"></i>
           </div>
+          <p class="text-xs text-center text-gray-400 mt-2">*Considera um tempo médio de 55 minutos de percurso.</p>
         </div>
       </div>
 
     </div>
   </div>
 
-  <!-- Menu de Navegação Inferior (App-like) -->
   <div class="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center h-[60px] z-[1001] pb-safe">
     <button class="nav-btn active flex flex-col items-center justify-center w-full h-full text-blue-600" data-target="tab-radar">
-      <i class="ph-fill ph-radar text-2xl mb-0.5"></i>
-      <span class="text-[10px] font-bold">Radar</span>
+      <i class="ph-fill ph-radar text-2xl mb-0.5"></i><span class="text-[10px] font-bold">Radar</span>
     </button>
     <button class="nav-btn flex flex-col items-center justify-center w-full h-full text-gray-400" data-target="tab-alarme">
-      <i class="ph-fill ph-alarm text-2xl mb-0.5"></i>
-      <span class="text-[10px] font-bold">Alarme</span>
+      <i class="ph-fill ph-alarm text-2xl mb-0.5"></i><span class="text-[10px] font-bold">Alarme</span>
     </button>
     <button class="nav-btn flex flex-col items-center justify-center w-full h-full text-gray-400" data-target="tab-planeador">
-      <i class="ph-fill ph-map-pin-line text-2xl mb-0.5"></i>
-      <span class="text-[10px] font-bold">Planear</span>
+      <i class="ph-fill ph-map-pin-line text-2xl mb-0.5"></i><span class="text-[10px] font-bold">Planear</span>
     </button>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // Inicialização do Mapa
-    const map = L.map('map', { zoomControl: false }).setView([-22.9068, -43.1729], 13);
-    L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20 }).addTo(map);
+    // 1. REGISTO DO SERVICE WORKER E PERMISSÃO DE NOTIFICAÇÕES (PWA)
+    if ('serviceWorker' in navigator && 'Notification' in window) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js');
+        if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+          Notification.requestPermission();
+        }
+      });
+    }
 
-    // Lógica de Navegação do Menu Inferior
+    // 2. LÓGICA DE NAVEGAÇÃO DOS MENUS
     const navButtons = document.querySelectorAll('.nav-btn');
     const tabContents = document.querySelectorAll('.tab-content');
-
     navButtons.forEach(btn => {
       btn.addEventListener('click', () => {
-        // Reset botões
-        navButtons.forEach(b => {
-          b.classList.remove('text-blue-600');
-          b.classList.add('text-gray-400');
-        });
-        // Ativar botão clicado
-        btn.classList.add('text-blue-600');
-        btn.classList.remove('text-gray-400');
-
-        // Esconder todas as abas
+        navButtons.forEach(b => { b.classList.remove('text-blue-600'); b.classList.add('text-gray-400'); });
+        btn.classList.add('text-blue-600'); btn.classList.remove('text-gray-400');
         tabContents.forEach(tab => tab.classList.remove('active'));
-        
-        // Mostrar aba selecionada
-        const targetId = btn.getAttribute('data-target');
-        document.getElementById(targetId).classList.add('active');
+        document.getElementById(btn.getAttribute('data-target')).classList.add('active');
       });
     });
-  </script>
-  <script>
-  // Registra o Service Worker e pede permissão para Notificações
-  if ('serviceWorker' in navigator && 'Notification' in window) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('PWA Registrado!', reg.scope))
-        .catch(err => console.error('Erro no PWA:', err));
-        
-      // Pede permissão para apitar
-      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-        Notification.requestPermission();
-      }
-    });
-  }
-</script>
 
+    // 3. MAPA E GEOLOCALIZAÇÃO
+    const map = L.map('map', { zoomControl: false }).setView([-22.9068, -43.1729], 13);
+    L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20 }).addTo(map);
+    
+    let userLat = -22.9068, userLon = -43.1729;
+    let userMarker = null;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(pos => {
+        userLat = pos.coords.latitude;
+        userLon = pos.coords.longitude;
+        if(!userMarker) {
+          userMarker = L.marker([userLat, userLon]).addTo(map).bindPopup("Você está aqui");
+          map.setView([userLat, userLon], 14);
+        } else {
+          userMarker.setLatLng([userLat, userLon]);
+        }
+      }, err => console.warn('GPS inativo', err), { enableHighAccuracy: true });
+    }
+
+    // FÓRMULA DE HAVERSINE (Distância entre coordenadas em KM)
+    function calcularDistancia(lat1, lon1, lat2, lon2) {
+      const R = 6371; 
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+
+    // 4. LÓGICA DO ALARME DE APROXIMAÇÃO
+    let alarmeAtivo = false;
+    let loopMonitorizacao;
+
+    document.getElementById('btnCriarAlarme').addEventListener('click', () => {
+      const linha = document.getElementById('inputLinhaAlarme').value.toUpperCase().trim();
+      if(!linha) return alert("Digite uma linha válida!");
+
+      alarmeAtivo = true;
+      document.getElementById('statusAlarmeBox').classList.remove('hidden');
+      document.getElementById('btnCriarAlarme').innerHTML = `<i class="ph-bold ph-spinner animate-spin text-lg"></i> Alarme Ativo para a linha ${linha}`;
+      document.getElementById('btnCriarAlarme').classList.replace('bg-blue-600', 'bg-green-600');
+
+      if(loopMonitorizacao) clearInterval(loopMonitorizacao);
+      
+      loopMonitorizacao = setInterval(async () => {
+        if(!alarmeAtivo) return;
+
+        try {
+          const res = await fetch('/api/vehicles'); // Consulta o seu backend na Cloudflare
+          const data = await res.json();
+          const frota = data.vehicles || [];
+
+          let onibusMaisProximo = null;
+          let menorDistancia = Infinity;
+
+          // Filtra a linha e acha o autocarro mais perto da sua localização de GPS
+          frota.filter(v => v.linha.includes(linha)).forEach(v => {
+            const dist = calcularDistancia(userLat, userLon, v.lat, v.lon);
+            if(dist < menorDistancia) { menorDistancia = dist; onibusMaisProximo = v; }
+          });
+
+          if(onibusMaisProximo) {
+            // Tempo = Distância / Velocidade. Assume 15km/h no mínimo para evitar cálculos infinitos no trânsito parado
+            const velocidadeReal = onibusMaisProximo.velocidade > 5 ? onibusMaisProximo.velocidade : 15;
+            const tempoMinutos = Math.round((menorDistancia / velocidadeReal) * 60);
+
+            document.getElementById('textoStatusAlarme').innerHTML = 
+              `O veículo mais próximo está a <b>${menorDistancia.toFixed(1)} km</b>.<br>Tempo estimado de chegada: <b>${tempoMinutos} minutos</b>.`;
+
+            // GATILHO DA NOTIFICAÇÃO PWA (Apita a 5 minutos da chegada)
+            if(tempoMinutos <= 5) {
+              if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                  type: 'DISPARAR_ALARME',
+                  mensagem: `Atenção! O seu autocarro da linha ${linha} chega em ${tempoMinutos} minutos!`
+                });
+              }
+              alarmeAtivo = false;
+              clearInterval(loopMonitorizacao);
+              document.getElementById('btnCriarAlarme').innerText = "Alarme Concluído";
+              document.getElementById('btnCriarAlarme').classList.replace('bg-green-600', 'bg-gray-400');
+            }
+          } else {
+            document.getElementById('textoStatusAlarme').innerText = "Nenhum veículo desta linha detetado no radar no momento.";
+          }
+        } catch(e) { console.error(e); }
+      }, 15000); // Checa a cada 15 segundos
+    });
+
+    // 5. LÓGICA DO PLANEADOR REVERSO (A que horas sair)
+    document.getElementById('inputHoraChegada').addEventListener('change', (e) => {
+      const horaDesejada = e.target.value;
+      if(!horaDesejada) return;
+
+      const tempoViagemSimulado = 55; // Num modelo avançado, isto viria da API de routing do Google Maps
+      
+      const [horas, minutos] = horaDesejada.split(':').map(Number);
+      const dataAlvo = new Date();
+      dataAlvo.setHours(horas, minutos, 0);
+
+      // Subtrai os 55 minutos da hora que precisa de chegar
+      const dataSair = new Date(dataAlvo.getTime() - (tempoViagemSimulado * 60000));
+      
+      const horaSaida = dataSair.getHours().toString().padStart(2, '0');
+      const minSaida = dataSair.getMinutes().toString().padStart(2, '0');
+
+      document.getElementById('resultadoPlaneador').innerText = `${horaSaida}:${minSaida}`;
+    });
+
+  </script>
 </body>
 </html>
- 
