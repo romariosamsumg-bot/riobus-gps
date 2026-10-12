@@ -1,0 +1,17 @@
+{
+  "name": "RioBus - Assistente",
+  "short_name": "RioBus",
+  "description": "Localização de ônibus em tempo real e alarmes de partida no Rio de Janeiro.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f4f6",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
